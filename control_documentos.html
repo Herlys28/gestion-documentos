@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Gestión de Documentos (Solo Firestore)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link href="https://fonts.googleapis.com/css?family=Roboto:400,700" rel="stylesheet">
+  <style>
+    body {font-family: 'Roboto', sans-serif; background: #f3f7fa; margin:0; padding:0;}
+    h2 {text-align:center; color:#1976d2; margin-top:16px;}
+    .dashboard {max-width:1000px;margin:16px auto 4px auto;display:flex;gap:10px;flex-wrap:wrap;justify-content:center;}
+    .dash-item {background:#fff;border-radius:10px;padding:8px 16px;color:#1976d2;font-weight:bold;box-shadow:0 2px 8px rgba(26,90,153,0.09);min-width:90px;text-align:center;font-size:1em;}
+    form {background:#fff;max-width:520px;margin:12px auto;border-radius:12px;padding:12px 6px;box-shadow:0 2px 8px rgba(26,90,153,0.08);}
+    label {font-weight:bold;color:#1976d2;margin-top:7px;display:block;}
+    input,select,textarea {width:100%;padding:6px;margin:3px 0 8px 0;border:1px solid #cfd8dc;border-radius:6px;background:#f8fafb;box-sizing:border-box;transition:border 0.2s;}
+    input:focus,select:focus,textarea:focus {border:1.5px solid #1976d2;outline:none;}
+    button {background:linear-gradient(90deg,#1976d2,#4fc3f7);color:#fff;border:none;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:0.97em;margin-right:4px;margin-top:5px;transition:background 0.3s;}
+    button:hover {background:linear-gradient(90deg,#1565c0,#039be5);}
+    .small-btn {font-size:0.93em;padding:3px 8px;margin-top:1px;margin-bottom:1px;}
+    table {width:99%;margin:8px auto;border-collapse:collapse;background:#fff;box-shadow:0 2px 8px rgba(26,90,153,0.08);}
+    th,td {padding:5px;text-align:left;border-bottom:1px solid #e3eaf2;font-size:0.95em;}
+    th {background:#e3f2fd;color:#1976d2;}
+    tr:hover {background:#e3f2fd4d;}
+    .action-btn {background:#f44336;color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;transition:background 0.2s;font-size:0.92em;margin-right:3px;}
+    .action-btn:hover {background:#d32f2f;}
+    .edit-btn {background:#ff9800;color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;margin-right:3px;font-size:0.92em;transition:background 0.2s;}
+    .edit-btn:hover {background:#ef6c00;}
+    .estado-btn {
+      border:none; border-radius:5px; font-weight:bold; color:#fff; cursor:pointer; padding:3px 8px; min-width:70px; font-size:0.97em; margin:2px 0;
+      background:#bbb; transition:background 0.2s;
+    }
+    .estado-pendiente {background:#f57c00;}
+    .estado-enviado {background:#1976d2;}
+    .estado-entregado {background:#388e3c;}
+    .estado-archivado {background:#0288d1;}
+    .center {text-align:center;}
+    .filter-bar {background:#fff;max-width:99%;margin:10px auto 3px auto;border-radius:8px;padding:7px 5px 7px 5px;box-shadow:0 2px 8px rgba(26,90,153,0.06);display:flex;flex-wrap:wrap;gap:7px;align-items:flex-end;font-size:0.95em;}
+    .filter-bar label {margin:0 3px 2px 0;font-size:0.95em;color:#1976d2;}
+    .importar-bar {background:#e3f2fd;max-width:410px;margin:3px auto 7px auto;border-radius:7px;padding:6px 6px 5px 6px;box-shadow:0 1px 4px rgba(26,90,153,0.04);display:flex;flex-wrap:wrap;gap:5px;align-items:center;font-size:0.93em;}
+    .import-drop {border:2px dashed #1976d2;padding:5px 12px;border-radius:7px;background:#e3f2fd;color:#1976d2;font-weight:bold;cursor:pointer;transition:border 0.2s, background 0.2s;font-size:0.94em;}
+    .import-drop.dragover {background:#bbdefb; border-color:#1565c0;}
+    .import-status {font-size:0.94em;color:#1976d2;margin-left:8px;}
+    @media (max-width:800px){.dashboard{flex-direction:column;align-items:stretch;}form{max-width:99%;}table{font-size:0.96em;}.filter-bar,.importar-bar{flex-direction:column;}}
+    @media (max-width:600px){form,.filter-bar,.importar-bar{padding:5px 2px;}table{font-size:0.91em;}th,td{padding:5px;}}
+    .modal-bg {
+      position: fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.25); z-index:10; display: flex; align-items: center; justify-content: center;
+    }
+    .modal {
+      background: #fff; border-radius: 10px; padding: 20px 18px; box-shadow: 0 2px 12px #0002; min-width: 220px; max-width: 95vw;
+      font-size: 1em;
+    }
+    .modal label {margin-top:6px;}
+    .modal input, .modal select {margin-bottom:12px;}
+    .modal .center {margin-top: 8px;}
+  </style>
+</head>
+<body>
+  <h2>Gestión de Documentos</h2>
+  <div class="dashboard" id="dashboard"></div>
+  <div class="filter-bar">
+    <div>
+      <label for="filtroTipo">Tipo:</label>
+      <select id="filtroTipo">
+        <option value="">Todos</option>
+        <option>Oficio</option>
+        <option>Memorando</option>
+        <option>Memorando Múltiple</option>
+        <option>Circular</option>
+        <option>Nota Informativa</option>
+        <option>NOT</option>
+        <option>Otro</option>
+      </select>
+    </div>
+    <div>
+      <label for="filtroEstado">Estado:</label>
+      <select id="filtroEstado">
+        <option value="">Todos</option>
+        <option>Pendiente</option>
+        <option>Enviado</option>
+        <option>Entregado</option>
+        <option>Archivado</option>
+      </select>
+    </div>
+    <button type="button" class="small-btn" onclick="resetFiltros()">Limpiar</button>
+    <button type="button" class="small-btn" onclick="descargarExcel()">Excel</button>
+    <button type="button" class="small-btn" onclick="descargarPDF()">PDF</button>
+  </div>
+  <div class="importar-bar">
+    <div class="import-drop" id="importDrop" tabindex="0">
+      Importar Excel/CSV
+      <input type="file" id="importFile" accept=".xlsx,.xls,.csv" style="display:none;">
+    </div>
+    <span class="import-status" id="importStatus"></span>
+    <a href="#" onclick="descargarPlantilla();return false;" style="margin-left:7px;">Plantilla</a>
+  </div>
+  <div class="filter-bar" style="gap:0; padding:5px 5px 3px 5px; margin-top:-7px;">
+    <div>
+      <label for="filtroBusqueda">Buscar:</label>
+      <input type="text" style="max-width:150px;" id="filtroBusqueda" placeholder="Folio / Nombre / Destino / Responsable">
+    </div>
+  </div>
+  <form id="documentoForm" autocomplete="off">
+    <input type="hidden" id="editIndex" value="">
+    <label for="doc_fecha">Fecha</label>
+    <input type="date" id="doc_fecha" required>
+    <label for="doc_tipo">Tipo de Documento</label>
+    <select id="doc_tipo" required>
+      <option value="">Seleccione...</option>
+      <option>Oficio</option>
+      <option>Memorando</option>
+      <option>Memorando Múltiple</option>
+      <option>Circular</option>
+      <option>Nota Informativa</option>
+      <option>NOT</option>
+      <option>Otro</option>
+    </select>
+    <label for="doc_nombre">Nombre del Documento</label>
+    <input type="text" id="doc_nombre" required>
+    <label for="doc_folio">Número / Folio</label>
+    <select id="doc_folio" required>
+      <option value="">Seleccione...</option>
+    </select>
+    <label for="doc_destino">Destino / Área receptora</label>
+    <input type="text" id="doc_destino" required>
+    <label for="doc_responsable">Responsable</label>
+    <input type="text" id="doc_responsable" required>
+    <label for="doc_descripcion">Descripción / Observaciones</label>
+    <textarea id="doc_descripcion" rows="2"></textarea>
+    <label for="doc_estado">Estado</label>
+    <select id="doc_estado" required>
+      <option value="">Seleccione...</option>
+      <option>Pendiente</option>
+      <option>Enviado</option>
+      <option>Entregado</option>
+      <option>Archivado</option>
+    </select>
+    <!-- Se ha eliminado el campo de adjuntar archivo porque no es compatible con el plan gratuito -->
+    <div class="center">
+      <button type="submit" id="addBtn">Agregar</button>
+    </div>
+  </form>
+  <div id="tabla-container">
+    <table id="tablaDocumentos">
+      <thead>
+        <tr>
+          <th>Fecha</th><th>Tipo</th><th>Nombre</th><th>Folio</th>
+          <th>Destino</th><th>Responsable</th><th>Descripción</th>
+          <th>Estado</th>
+          <th>Envío</th>
+          <th>Entrega</th>
+          <th>Adjunto</th>
+          <th>Acción</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div id="modal-bg" style="display:none;"></div>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script>
+    // Configuración de Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyBDDk9tKZoUD2VszRbjyA4V3cwP3IO-6WE",
+      authDomain: "proyecto1-9d0fd.firebaseapp.com",
+      projectId: "proyecto1-9d0fd",
+      storageBucket: "proyecto1-9d0fd.appspot.com",
+      messagingSenderId: "169835351657",
+      appId: "1:169835351657:web:249d8128ade26d76de9cf8"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+  </script>
+  <script>
+    let documentos = [];
+    let documentosIds = [];
+    db.collection("documentos").orderBy("folio", "asc").onSnapshot((querySnapshot) => {
+      documentos = [];
+      documentosIds = [];
+      querySnapshot.forEach((doc) => {
+        documentos.push(doc.data());
+        documentosIds.push(doc.id);
+      });
+      mostrarDocumentos();
+      actualizarDashboard();
+    });
+    // Importación Excel/CSV
+    const importDrop = document.getElementById('importDrop');
+    const importFile = document.getElementById('importFile');
+    importDrop.onclick = () => importFile.click();
+    importDrop.ondragover = e => { e.preventDefault(); importDrop.classList.add('dragover'); };
+    importDrop.ondragleave = () => importDrop.classList.remove('dragover');
+    importDrop.ondrop = e => {e.preventDefault(); importDrop.classList.remove('dragover');
+      if(e.dataTransfer.files && e.dataTransfer.files[0]) importarArchivoExcel(e.dataTransfer.files[0]);
+    };
+    importFile.onchange = e => { if(e.target.files[0]) importarArchivoExcel(e.target.files[0]); };
+    async function importarArchivoExcel(file) {
+      document.getElementById('importStatus').textContent = "Procesando...";
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        let data = e.target.result;
+        let workbook = XLSX.read(data, {type: 'binary'});
+        let sheet = workbook.Sheets[workbook.SheetNames[0]];
+        let rows = XLSX.utils.sheet_to_json(sheet, {defval:""});
+        let count=0;
+        let batch = db.batch();
+        for (const row of rows) {
+          if(!row.Fecha || !row.Tipo || !row.Nombre || !row.Folio || !row.Destino || !row.Responsable || !row.Estado) continue;
+          let doc = {
+            fecha: row.Fecha, tipo: row.Tipo, nombre: row.Nombre, folio: String(row.Folio),
+            destino: row.Destino, responsable: row.Responsable, descripcion: row["Descripción"]||"", estado: row.Estado,
+            envioOficina: row["Enviado a"]||"", envioFecha: row["Fecha Envío"]||"", entregaFecha: row["Fecha Entrega"]||"",
+            adjunto: "", adjuntoKey: null, adjuntoUrl: ""
+          };
+          if(documentos.find(d=>d.folio===doc.folio && d.nombre===doc.nombre)) continue;
+          let newDocRef = db.collection("documentos").doc();
+          batch.set(newDocRef, doc);
+          count++;
+        }
+        await batch.commit();
+        document.getElementById('importStatus').textContent = `${count} importados`;
+        setTimeout(()=>{document.getElementById('importStatus').textContent="";}, 2000);
+      };
+      reader.onerror = () => {document.getElementById('importStatus').textContent="Error al leer archivo";};
+      reader.readAsBinaryString(file);
+    }
+    function descargarPlantilla() {
+      const encabezado = [['Fecha','Tipo','Nombre','Folio','Destino','Responsable','Descripción','Estado','Enviado a','Fecha Envío','Fecha Entrega']];
+      const ejemplo = [['2025-05-30','Oficio','Ejemplo de Documento','1','Gerencia','Juan Perez','Observación','Pendiente','Mesa de Partes','2025-05-31','']];
+      const ws = XLSX.utils.aoa_to_sheet(encabezado.concat(ejemplo));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Documentos");
+      XLSX.writeFile(wb, "plantilla_documentos.xlsx");
+    }
+    // Formulario agregar/editar documento (sin adjuntos)
+    document.getElementById('documentoForm').onsubmit = async function(e) {
+      e.preventDefault();
+      const data = {
+        fecha: document.getElementById('doc_fecha').value,
+        tipo: document.getElementById('doc_tipo').value,
+        nombre: document.getElementById('doc_nombre').value,
+        folio: document.getElementById('doc_folio').value,
+        destino: document.getElementById('doc_destino').value,
+        responsable: document.getElementById('doc_responsable').value,
+        descripcion: document.getElementById('doc_descripcion').value,
+        estado: document.getElementById('doc_estado').value,
+        envioOficina: "",
+        envioFecha: "",
+        entregaFecha: "",
+        adjunto: "",
+        adjuntoKey: null,
+        adjuntoUrl: ""
+      };
+      const editIndex = document.getElementById('editIndex').value;
+      if(editIndex !== "") {
+        const id = documentosIds[editIndex];
+        const old = documentos[editIndex];
+        data.envioOficina = old.envioOficina||""; data.envioFecha = old.envioFecha||""; data.entregaFecha = old.entregaFecha||"";
+        await db.collection("documentos").doc(id).set(data);
+        document.getElementById('addBtn').textContent = "Agregar";
+        document.getElementById('editIndex').value = "";
+      } else {
+        await db.collection("documentos").add(data);
+      }
+      e.target.reset();
+    };
+    const estados = ["Pendiente", "Enviado", "Entregado", "Archivado"];
+    function nextEstado(actual) {
+      let idx = estados.indexOf(actual);
+      return estados[(idx+1)%estados.length];
+    }
+    function mostrarDocumentos() {
+      const tbody = document.querySelector('#tablaDocumentos tbody');
+      tbody.innerHTML = '';
+      let filtroTipo = document.getElementById('filtroTipo').value;
+      let filtroEstado = document.getElementById('filtroEstado').value;
+      let filtroBusqueda = document.getElementById('filtroBusqueda').value.toLowerCase();
+      let filtrados = documentos.filter(c => {
+        let ok = true;
+        if(filtroTipo && c.tipo !== filtroTipo) ok = false;
+        if(filtroEstado && c.estado !== filtroEstado) ok = false;
+        if(filtroBusqueda) {
+          let campos = [c.folio, c.nombre, c.destino, c.responsable].join(' ').toLowerCase();
+          if(!campos.includes(filtroBusqueda)) ok = false;
+        }
+        return ok;
+      });
+      filtrados.forEach((c, idx) => {
+        let envio = c.envioOficina ? `<b>${c.envioOficina}</b><br>${c.envioFecha||""}` : '-';
+        let entrega = c.entregaFecha ? c.entregaFecha : '-';
+        let adjuntoBtn = ''; // No hay adjuntos
+        let claseEstado = (c.estado==="Pendiente"?"estado-pendiente":c.estado==="Enviado"?"estado-enviado":c.estado==="Entregado"?"estado-entregado":"estado-archivado");
+        let fila = `<tr>
+          <td>${c.fecha}</td><td>${c.tipo}</td><td>${c.nombre}</td><td>${c.folio}</td>
+          <td>${c.destino}</td><td>${c.responsable}</td><td>${c.descripcion}</td>
+          <td>
+            <button class="estado-btn ${claseEstado}" onclick="cambiarEstado(${documentos.indexOf(c)})">${c.estado}</button>
+          </td>
+          <td>${envio}</td>
+          <td>${entrega}</td>
+          <td>-</td>
+          <td>
+            <button class="edit-btn" onclick="editarDocumento(${documentos.indexOf(c)})">Editar</button>
+            <button class="action-btn" onclick="eliminarDocumento(${documentos.indexOf(c)})">Eliminar</button>
+          </td>
+        </tr>`;
+        tbody.innerHTML += fila;
+      });
+    }
+    function cambiarEstado(idx) {
+      let doc = documentos[idx];
+      let id = documentosIds[idx];
+      let est = doc.estado;
+      if(est === "Pendiente") {
+        mostrarModal(`
+          <label>Oficina de destino:</label>
+          <input type="text" id="modalOficina" value="${doc.envioOficina||""}" required>
+          <label>Fecha de envío:</label>
+          <input type="date" id="modalFecha" value="${doc.envioFecha||new Date().toISOString().substr(0,10)}" required>
+          <div class="center">
+            <button onclick="guardarEnvio(${idx})">Guardar Envío</button>
+            <button onclick="cerrarModal()">Cancelar</button>
+          </div>
+        `);
+      } else if(est === "Enviado") {
+        mostrarModal(`
+          <label>Fecha de entrega:</label>
+          <input type="date" id="modalFechaEntrega" value="${(doc.entregaFecha||new Date().toISOString().substr(0,10))}" required>
+          <div class="center">
+            <button onclick="guardarEntrega(${idx})">Guardar Entrega</button>
+            <button onclick="cerrarModal()">Cancelar</button>
+          </div>
+        `);
+      } else {
+        doc.estado = nextEstado(est);
+        if(doc.estado === "Pendiente"){
+          doc.envioOficina = ""; doc.envioFecha = ""; doc.entregaFecha = "";
+        }
+        db.collection("documentos").doc(id).set(doc);
+      }
+    }
+    function guardarEnvio(idx) {
+      const oficina = document.getElementById('modalOficina').value.trim();
+      const fecha = document.getElementById('modalFecha').value;
+      if(!oficina) return alert('Debe ingresar la oficina.');
+      if(!fecha) return alert('Debe ingresar la fecha.');
+      let doc = documentos[idx];
+      let id = documentosIds[idx];
+      doc.envioOficina = oficina;
+      doc.envioFecha = fecha;
+      doc.estado = "Enviado";
+      db.collection("documentos").doc(id).set(doc);
+      cerrarModal();
+    }
+    function guardarEntrega(idx) {
+      const fecha = document.getElementById('modalFechaEntrega').value;
+      if(!fecha) return alert('Debe ingresar la fecha.');
+      let doc = documentos[idx];
+      let id = documentosIds[idx];
+      doc.entregaFecha = fecha;
+      doc.estado = "Entregado";
+      db.collection("documentos").doc(id).set(doc);
+      cerrarModal();
+    }
+    function mostrarModal(html) {
+      let bg = document.getElementById('modal-bg');
+      bg.innerHTML = `<div class="modal">${html}</div>`;
+      bg.style.display = "flex";
+    }
+    function cerrarModal() {
+      let bg = document.getElementById('modal-bg');
+      bg.innerHTML = "";
+      bg.style.display = "none";
+    }
+    function editarDocumento(idx) {
+      const c = documentos[idx];
+      document.getElementById('doc_fecha').value = c.fecha;
+      document.getElementById('doc_tipo').value = c.tipo;
+      document.getElementById('doc_nombre').value = c.nombre;
+      document.getElementById('doc_folio').value = c.folio;
+      document.getElementById('doc_destino').value = c.destino;
+      document.getElementById('doc_responsable').value = c.responsable;
+      document.getElementById('doc_descripcion').value = c.descripcion;
+      document.getElementById('doc_estado').value = c.estado;
+      document.getElementById('editIndex').value = idx;
+      document.getElementById('addBtn').textContent = "Actualizar";
+    }
+    async function eliminarDocumento(idx) {
+      if (confirm('¿Eliminar este documento?')) {
+        let id = documentosIds[idx];
+        db.collection("documentos").doc(id).delete();
+      }
+    }
+    function descargarExcel() {
+      if (documentos.length === 0) return alert('No hay datos para descargar');
+      let encabezado = [
+        'Fecha','Tipo','Nombre','Folio','Destino','Responsable','Descripción','Estado','Enviado a','Fecha Envío','Fecha Entrega'
+      ];
+      let filtroTipo = document.getElementById('filtroTipo').value;
+      let filtroEstado = document.getElementById('filtroEstado').value;
+      let filtroBusqueda = document.getElementById('filtroBusqueda').value.toLowerCase();
+      let filtrados = documentos.filter(c => {
+        let ok = true;
+        if(filtroTipo && c.tipo !== filtroTipo) ok = false;
+        if(filtroEstado && c.estado !== filtroEstado) ok = false;
+        if(filtroBusqueda) {
+          let campos = [c.folio, c.nombre, c.destino, c.responsable].join(' ').toLowerCase();
+          if(!campos.includes(filtroBusqueda)) ok = false;
+        }
+        return ok;
+      });
+      let data = [encabezado];
+      filtrados.forEach(c => {
+        data.push([
+          c.fecha, c.tipo, c.nombre, c.folio, c.destino, c.responsable,
+          c.descripcion, c.estado, c.envioOficina||"", c.envioFecha||"", c.entregaFecha||""
+        ]);
+      });
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Documentos");
+      XLSX.writeFile(wb, "documentos.xlsx");
+    }
+    function descargarPDF() {
+      if (documentos.length === 0) return alert('No hay datos para descargar');
+      const { jsPDF } = window.jspdf;
+      const docPDF = new jsPDF({orientation:'landscape'});
+      docPDF.setFontSize(13);
+      docPDF.text('Reporte de Documentos', 10, 10);
+      let startY = 16;
+      let col = [
+        'Fecha','Tipo','Nombre','Folio','Destino','Responsable','Descripción','Estado','Enviado a','F.Envio','F.Entrega'
+      ];
+      let rowHeight = 8;
+      let currentY = startY + rowHeight;
+      docPDF.setFontSize(8.5);
+      col.forEach((t, i) => {docPDF.text(t, 9 + i*32, currentY);});
+      currentY += rowHeight;
+      let filtroTipo = document.getElementById('filtroTipo').value;
+      let filtroEstado = document.getElementById('filtroEstado').value;
+      let filtroBusqueda = document.getElementById('filtroBusqueda').value.toLowerCase();
+      let filtrados = documentos.filter(c => {
+        let ok = true;
+        if(filtroTipo && c.tipo !== filtroTipo) ok = false;
+        if(filtroEstado && c.estado !== filtroEstado) ok = false;
+        if(filtroBusqueda) {
+          let campos = [c.folio, c.nombre, c.destino, c.responsable].join(' ').toLowerCase();
+          if(!campos.includes(filtroBusqueda)) ok = false;
+        }
+        return ok;
+      });
+      filtrados.forEach(d => {
+        let values = [
+          d.fecha, d.tipo, d.nombre.substring(0,18), d.folio, d.destino.substring(0,14),
+          d.responsable.substring(0,13), d.descripcion.substring(0,13), d.estado,
+          d.envioOficina||"", d.envioFecha||"", d.entregaFecha||""
+        ];
+        values.forEach((v,i) => {docPDF.text(String(v), 9 + i*32, currentY);});
+        currentY += rowHeight;
+        if (currentY > 185) {
+          docPDF.addPage('landscape');
+          currentY = startY + rowHeight;
+          col.forEach((t, i) => {docPDF.text(t, 9 + i*32, currentY);});
+          currentY += rowHeight;
+        }
+      });
+      docPDF.save('documentos.pdf');
+    }
+    document.getElementById('filtroTipo').onchange =
+    document.getElementById('filtroEstado').onchange =
+    document.getElementById('filtroBusqueda').oninput = mostrarDocumentos;
+    function resetFiltros() {
+      document.getElementById('filtroTipo').value = '';
+      document.getElementById('filtroEstado').value = '';
+      document.getElementById('filtroBusqueda').value = '';
+      mostrarDocumentos();
+    }
+    function actualizarDashboard() {
+      const dash = document.getElementById('dashboard');
+      let total = documentos.length;
+      let entregados = documentos.filter(c=>c.estado==="Entregado").length;
+      let pendientes = documentos.filter(c=>c.estado==="Pendiente").length;
+      let archivados = documentos.filter(c=>c.estado==="Archivado").length;
+      let enviados = documentos.filter(c=>c.estado==="Enviado").length;
+      dash.innerHTML = `
+        <div class="dash-item">Total:<br><span style="font-size:1.09em">${total}</span></div>
+        <div class="dash-item">Entregados:<br><span style="color:#388e3c">${entregados}</span></div>
+        <div class="dash-item">Pendientes:<br><span style="color:#f57c00">${pendientes}</span></div>
+        <div class="dash-item">Enviados:<br><span style="color:#1565c0">${enviados}</span></div>
+        <div class="dash-item">Archivados:<br><span style="color:#0288d1">${archivados}</span></div>
+      `;
+    }
+    window.addEventListener('DOMContentLoaded', function() {
+      const folioSelect = document.getElementById('doc_folio');
+      folioSelect.innerHTML = '<option value="">Seleccione...</option>';
+      for(let i=1;i<=200;i++){
+        let opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = i;
+        folioSelect.appendChild(opt);
+      }
+    });
+  </script>
+</body>
+</html>
